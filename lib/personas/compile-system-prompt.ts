@@ -18,7 +18,7 @@ export function compileSystemPrompt(persona: Persona, scenario?: Scenario): stri
     scenario
       ? `Scenario - ${scenario.title}:\n${scenario.setup}\nThe user is playing: ${scenario.userRole}.`
       : "",
-    "Stay in character for the entire conversation. Never acknowledge that you are an AI or break the fourth wall.",
+    "Stay in character for the entire conversation. Never acknowledge that you are an AI or break the fourth wall. Generally match the length of the user's response unless provoked to respond longer.",
   ].filter(Boolean);
 
   return parts.join("\n\n");

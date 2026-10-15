@@ -1,11 +1,23 @@
 import { getArchetype } from "@/lib/personas/archetypes";
 import { getScenario } from "@/lib/personas/scenarios";
+import { appendMessage } from "@/lib/conversation/db";
 import { completeText, extractJson, hasApiKey } from "@/lib/practice/claude";
 import { PLACEHOLDER_USER } from "@/lib/practice/catalog";
 import { buildChatSystemPrompt } from "@/lib/practice/prompt";
 import { scriptedReply } from "@/lib/practice/scripted";
 import { clampTension, type ChatResponse } from "@/lib/practice/types";
 import { parseChatRequest } from "@/lib/practice/validate";
+
+// Persisting a turn is best-effort: a Supabase hiccup shouldn't block the reply
+// the user already sees, so failures are logged, not thrown.
+async function persistTurn(conversationId: string, userText: string, replyText: string) {
+  try {
+    await appendMessage(conversationId, "user", userText);
+    await appendMessage(conversationId, "ai", replyText);
+  } catch (error) {
+    console.error("[api/chat] failed to persist turn:", error);
+  }
+}
 
 export async function POST(request: Request) {
   let body: unknown;
@@ -19,17 +31,21 @@ export async function POST(request: Request) {
   if (!input) return Response.json({ error: "Invalid chat request." }, { status: 400 });
 
   const persona = getArchetype(input.personaId);
-  const scenario = getScenario(input.scenarioId);
-  if (!persona || !scenario || scenario.personaId !== persona.id) {
-    return Response.json({ error: "Unknown archetype or scenario." }, { status: 404 });
+  if (!persona) return Response.json({ error: "Unknown archetype." }, { status: 404 });
+
+  // Empty when continuing a past conversation, whose original scenario isn't stored.
+  const scenario = input.scenarioId ? getScenario(input.scenarioId) : undefined;
+  if (input.scenarioId && (!scenario || scenario.personaId !== persona.id)) {
+    return Response.json({ error: "Unknown scenario." }, { status: 404 });
   }
 
   const latest = input.messages[input.messages.length - 1].content;
 
   // No API key: fall back to the scripted replies so the UI still works locally.
   if (!hasApiKey()) {
-    const scripted = scriptedReply(scenario.id, latest, input.tension, input.turn);
+    const scripted = scriptedReply(scenario?.id ?? "", latest, input.tension, input.turn);
     const payload: ChatResponse = { ...scripted, source: "scripted" };
+    await persistTurn(input.conversationId, latest, scripted.reply.join("\n\n"));
     return Response.json(payload);
   }
 
@@ -73,6 +89,7 @@ export async function POST(request: Request) {
       note: typeof parsed?.note === "string" ? parsed.note.slice(0, 200) : "",
       source: "claude",
     };
+    await persistTurn(input.conversationId, latest, reply.join("\n\n"));
     return Response.json(payload);
   } catch (error) {
     console.error("[api/chat] model call failed:", error);

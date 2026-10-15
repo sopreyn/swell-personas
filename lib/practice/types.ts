@@ -17,17 +17,6 @@ export interface TurnRecord {
   tensionAfter: number;
 }
 
-export interface SessionRecord {
-  id: string;
-  personaId: string;
-  scenarioId: string;
-  startedAt: number;
-  updatedAt: number;
-  messages: PracticeMessage[];
-  turns: TurnRecord[];
-  tension: number;
-}
-
 // What the browser knows about an archetype. Persona rules stay on the server.
 export interface CatalogScenario {
   id: string;
@@ -54,7 +43,10 @@ export interface PracticeUser {
 
 // POST /api/chat
 export interface ChatRequest {
+  // The conversation row this turn belongs to (created via POST /api/conversations).
+  conversationId: string;
   personaId: string;
+  // Empty when continuing a past conversation, whose original scenario isn't stored.
   scenarioId: string;
   tension: number;
   turn: number;

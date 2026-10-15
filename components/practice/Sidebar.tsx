@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
-import { describeOutcome, type SessionGroup } from "@/lib/practice/history";
-import { findArchetype, findScenario } from "@/lib/practice/lookup";
-import type { CatalogArchetype, PracticeUser, SessionRecord } from "@/lib/practice/types";
+import { findArchetype } from "@/lib/practice/lookup";
+import { describeUpdatedAt, type ConversationSummaryView, type SessionGroup } from "@/lib/practice/sessions";
+import type { CatalogArchetype, PracticeUser } from "@/lib/practice/types";
 import { PlusIcon, WaveMark } from "./icons";
 
 interface SidebarProps {
@@ -11,7 +11,7 @@ interface SidebarProps {
   user: PracticeUser;
   open: boolean;
   onNew: () => void;
-  onSelect: (session: SessionRecord) => void;
+  onSelect: (session: ConversationSummaryView) => void;
   onQuiz: () => void;
 }
 
@@ -37,7 +37,6 @@ export function Sidebar({ groups, activeId, catalog, user, open, onNew, onSelect
               <div className="day">{group.label}</div>
               {group.items.map((session) => {
                 const archetype = findArchetype(catalog, session.personaId);
-                const scenario = findScenario(catalog, session.personaId, session.scenarioId);
                 return (
                   <button
                     type="button"
@@ -49,8 +48,8 @@ export function Sidebar({ groups, activeId, catalog, user, open, onNew, onSelect
                   >
                     <i className="dot" />
                     <span>
-                      <b>{scenario?.title ?? "Practice session"}</b>
-                      <small>{describeOutcome(session)}</small>
+                      <b>{session.title}</b>
+                      <small>{describeUpdatedAt(session)}</small>
                     </span>
                   </button>
                 );

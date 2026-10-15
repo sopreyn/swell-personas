@@ -3,7 +3,8 @@ import type { Persona, Scenario } from "@/lib/personas/types";
 
 interface ChatPromptInput {
   persona: Persona;
-  scenario: Scenario;
+  // Absent when continuing a past conversation, whose original scenario isn't stored.
+  scenario?: Scenario;
   userType: string;
   tension: number;
   // The persona's opening lines, already shown to the user before their first message.
@@ -36,10 +37,13 @@ export function buildChatSystemPrompt({
     .join("\n\n");
 }
 
-export function buildReviewPrompt(persona: Persona, scenario: Scenario, moments: string[]): string {
+export function buildReviewPrompt(persona: Persona, scenario: Scenario | undefined, moments: string[]): string {
   const list = moments.map((m, i) => `${i + 1}. ${m}`).join("\n");
+  const context = scenario
+    ? `A user practiced a conflict conversation with ${persona.name}. Scenario - ${scenario.title}: ${scenario.setup}`
+    : `A user practiced a conflict conversation with ${persona.name}.`;
   return [
-    `A user practiced a conflict conversation with ${persona.name}. Scenario - ${scenario.title}: ${scenario.setup}`,
+    context,
     `These are the user's messages that made the conversation more tense:\n${list}`,
     `For each one, write one warm, concrete sentence (at most 25 words) suggesting what the user could say or do differently. Do not rewrite the whole message and do not judge the user.`,
     `Respond with ONLY a JSON array of ${moments.length} strings, in the same order, no markdown fences.`,

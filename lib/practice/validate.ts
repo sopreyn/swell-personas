@@ -10,7 +10,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export function parseChatRequest(body: unknown): ChatRequest | null {
   if (!isRecord(body)) return null;
-  const { personaId, scenarioId, tension, turn, messages } = body;
+  const { conversationId, personaId, scenarioId, tension, turn, messages } = body;
+  if (typeof conversationId !== "string" || conversationId.length === 0) return null;
   if (typeof personaId !== "string" || typeof scenarioId !== "string") return null;
   if (!Array.isArray(messages) || messages.length === 0 || messages.length > MAX_MESSAGES) return null;
 
@@ -24,6 +25,7 @@ export function parseChatRequest(body: unknown): ChatRequest | null {
   if (clean[clean.length - 1].role !== "user") return null;
 
   return {
+    conversationId,
     personaId,
     scenarioId,
     tension: clampTension(typeof tension === "number" ? tension : 1),

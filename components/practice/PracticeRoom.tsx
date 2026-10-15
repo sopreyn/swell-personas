@@ -1,16 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
-import {
-  getServerSnapshot,
-  getSnapshot,
-  groupSessions,
-  newId,
-  parseSessions,
-  saveSession,
-  subscribe,
-} from "@/lib/practice/history";
+import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { getAnonUserIdServerSnapshot, getAnonUserIdSnapshot, subscribeAnonUserId } from "@/lib/practice/anon-user";
+import { newId } from "@/lib/practice/id";
 import { findArchetype, findScenario } from "@/lib/practice/lookup";
+import { groupConversations, type ConversationSummaryView } from "@/lib/practice/sessions";
 import { fallbackSuggestions } from "@/lib/practice/suggestions";
 import type {
   CatalogArchetype,
@@ -20,7 +14,6 @@ import type {
   PracticeMessage,
   PracticeUser,
   ReviewResponse,
-  SessionRecord,
   TurnRecord,
 } from "@/lib/practice/types";
 import { ChatLog } from "./ChatLog";
@@ -63,17 +56,36 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function getJson<T>(url: string): Promise<T> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    let message = "Something went wrong. Try again.";
+    try {
+      const data = (await response.json()) as { error?: unknown };
+      if (typeof data.error === "string") message = data.error;
+    } catch {
+      // Keep the generic message.
+    }
+    throw new Error(message);
+  }
+  return (await response.json()) as T;
+}
+
 export function PracticeRoom({ catalog, user }: PracticeRoomProps) {
   const first = catalog[0];
   const firstScenario = first?.scenarios[0];
 
+  const userId = useSyncExternalStore(subscribeAnonUserId, getAnonUserIdSnapshot, getAnonUserIdServerSnapshot);
+  const [summaries, setSummaries] = useState<ConversationSummaryView[]>([]);
+
   const [personaId, setPersonaId] = useState(first?.id ?? "");
+  // Empty once a past conversation is resumed - its original scenario isn't stored.
   const [scenarioId, setScenarioId] = useState(firstScenario?.id ?? "");
   const [messages, setMessages] = useState<PracticeMessage[]>(() => openerMessages(firstScenario));
   const [turns, setTurns] = useState<TurnRecord[]>([]);
   const [tension, setTension] = useState(1);
+  // The Supabase conversation id. Null until the first message of a session is sent.
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [startedAt, setStartedAt] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -88,9 +100,26 @@ export function PracticeRoom({ catalog, user }: PracticeRoomProps) {
   // Bumped whenever the session changes, so late replies from an old session are dropped.
   const tokenRef = useRef(0);
 
-  const rawSessions = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
-  const sessions = useMemo(() => parseSessions(rawSessions), [rawSessions]);
-  const groups = groupSessions(sessions);
+  const groups = groupConversations(summaries);
+
+  async function refreshSessions(forUserId: string) {
+    try {
+      const data = await getJson<ConversationSummaryView[]>(
+        `/api/conversations?userId=${encodeURIComponent(forUserId)}`,
+      );
+      setSummaries(data);
+    } catch {
+      // Keep whatever was already shown; the sidebar just won't update this time.
+    }
+  }
+
+  // Load this user's past sessions once the anon user id is available (client-only).
+  // refreshSessions only calls setSummaries after its fetch resolves, not synchronously.
+  useEffect(() => {
+    if (!userId) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    refreshSessions(userId);
+  }, [userId]);
 
   // Escape closes the mobile drawer.
   useEffect(() => {
@@ -103,8 +132,8 @@ export function PracticeRoom({ catalog, user }: PracticeRoomProps) {
   }, [railOpen]);
 
   const archetype = findArchetype(catalog, personaId);
-  const scenario = findScenario(catalog, personaId, scenarioId);
-  if (!archetype || !scenario) {
+  const scenario = scenarioId ? findScenario(catalog, personaId, scenarioId) : undefined;
+  if (!archetype) {
     return <p style={{ padding: 24 }}>No practice scenarios are configured yet.</p>;
   }
 
@@ -119,7 +148,6 @@ export function PracticeRoom({ catalog, user }: PracticeRoomProps) {
     setTurns([]);
     setTension(1);
     setSessionId(null);
-    setStartedAt(null);
     setDraft("");
     setBusy(false);
     setNotice(null);
@@ -128,27 +156,44 @@ export function PracticeRoom({ catalog, user }: PracticeRoomProps) {
     inputRef.current?.focus();
   }
 
-  function loadSession(record: SessionRecord) {
-    if (!findScenario(catalog, record.personaId, record.scenarioId)) return;
+  async function loadSession(summary: ConversationSummaryView) {
     tokenRef.current += 1;
+    const token = tokenRef.current;
     setLogKey((k) => k + 1);
-    setPersonaId(record.personaId);
-    setScenarioId(record.scenarioId);
-    setMessages(record.messages);
-    setTurns(record.turns);
-    setTension(record.tension);
-    setSessionId(record.id);
-    setStartedAt(record.startedAt);
+    setPersonaId(summary.personaId);
+    // The original scenario isn't stored, so the picker/topbar fall back to a generic label.
+    setScenarioId("");
+    setMessages([]);
+    setTurns([]);
+    setTension(1);
+    setSessionId(summary.id);
     setDraft("");
     setBusy(false);
     setNotice(null);
     setView("chat");
     setRailOpen(false);
+
+    try {
+      const conversation = await getJson<{ messages: { role: "user" | "ai"; content: string }[] }>(
+        `/api/conversations/${summary.id}`,
+      );
+      if (token !== tokenRef.current) return;
+      setMessages(
+        conversation.messages.map((m) => ({
+          id: newId(),
+          role: m.role === "ai" ? "assistant" : "user",
+          content: m.content,
+        })),
+      );
+    } catch (error) {
+      if (token !== tokenRef.current) return;
+      setNotice(error instanceof Error ? error.message : "Could not load this session.");
+    }
   }
 
   async function send() {
     const text = draft.trim();
-    if (!text || busy) return;
+    if (!text || busy || !userId) return;
 
     const token = tokenRef.current;
     const previousTension = tension;
@@ -160,15 +205,22 @@ export function PracticeRoom({ catalog, user }: PracticeRoomProps) {
     setBusy(true);
     setNotice(null);
 
-    const request: ChatRequest = {
-      personaId,
-      scenarioId,
-      tension: previousTension,
-      turn: turnIndex,
-      messages: withUser.map(({ role, content }) => ({ role, content })),
-    };
-
     try {
+      let conversationId = sessionId;
+      if (!conversationId) {
+        const created = await postJson<{ id: string }>("/api/conversations", { personaId, userId, scenarioId });
+        conversationId = created.id;
+      }
+
+      const request: ChatRequest = {
+        conversationId,
+        personaId,
+        scenarioId,
+        tension: previousTension,
+        turn: turnIndex,
+        messages: withUser.map(({ role, content }) => ({ role, content })),
+      };
+
       const [data] = await Promise.all([postJson<ChatResponse>("/api/chat", request), sleep(MIN_TYPING_MS)]);
       if (token !== tokenRef.current) return;
 
@@ -183,27 +235,14 @@ export function PracticeRoom({ catalog, user }: PracticeRoomProps) {
         ...withUser,
         { id: newId(), role: "assistant", content: data.reply.join("\n\n") },
       ];
-      const nextTurns = [...turns, turnRecord];
-      const id = sessionId ?? newId();
-      const started = startedAt ?? Date.now();
 
       setMessages(nextMessages);
-      setTurns(nextTurns);
+      setTurns((prev) => [...prev, turnRecord]);
       setTension(tensionAfter);
-      setSessionId(id);
-      setStartedAt(started);
+      setSessionId(conversationId);
       setBusy(false);
 
-      saveSession({
-        id,
-        personaId,
-        scenarioId,
-        startedAt: started,
-        updatedAt: Date.now(),
-        messages: nextMessages,
-        turns: nextTurns,
-        tension: tensionAfter,
-      });
+      refreshSessions(userId);
     } catch (error) {
       if (token !== tokenRef.current) return;
       // Roll the message back into the box so nothing the user wrote is lost.
@@ -242,6 +281,12 @@ export function PracticeRoom({ catalog, user }: PracticeRoomProps) {
     }
   }
 
+  function startFreshSession() {
+    const target = findArchetype(catalog, personaId) ?? first;
+    const targetScenario = target?.scenarios[0];
+    if (target && targetScenario) startSession(target.id, targetScenario.id);
+  }
+
   return (
     <div
       className="practice"
@@ -253,7 +298,7 @@ export function PracticeRoom({ catalog, user }: PracticeRoomProps) {
         catalog={catalog}
         user={user}
         open={railOpen}
-        onNew={() => startSession(personaId, scenarioId)}
+        onNew={startFreshSession}
         onSelect={loadSession}
         onQuiz={() => {
           setNotice(`This would open Swell's personality quiz so ${user.name} can retake it.`);
@@ -268,7 +313,7 @@ export function PracticeRoom({ catalog, user }: PracticeRoomProps) {
           catalog={catalog}
           archetype={archetype}
           scenarioId={scenarioId}
-          scenarioLine={`${scenario.title} · ${scenario.setup}`}
+          scenarioLine={scenario ? `${scenario.title} · ${scenario.setup}` : "Continuing a previous conversation"}
           tension={tension}
           railOpen={railOpen}
           onPick={startSession}
@@ -277,20 +322,20 @@ export function PracticeRoom({ catalog, user }: PracticeRoomProps) {
 
         {view === "review" ? (
           <ReviewPanel
-            scenarioTitle={scenario.title}
+            scenarioTitle={scenario?.title ?? "Previous conversation"}
             archetypeName={archetype.name}
             turns={turns}
             suggestions={suggestions}
             loadingSuggestions={loadingSuggestions}
             onBack={() => setView("chat")}
-            onRestart={() => startSession(personaId, scenarioId)}
+            onRestart={startFreshSession}
           />
         ) : (
           <>
             <ChatLog
               key={logKey}
               archetypeName={archetype.name}
-              setup={scenario.setup}
+              setup={scenario?.setup ?? ""}
               messages={messages}
               busy={busy}
               notice={notice}

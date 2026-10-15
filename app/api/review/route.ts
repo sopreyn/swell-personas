@@ -18,9 +18,12 @@ export async function POST(request: Request) {
   if (!input) return Response.json({ error: "Invalid review request." }, { status: 400 });
 
   const persona = getArchetype(input.personaId);
-  const scenario = getScenario(input.scenarioId);
-  if (!persona || !scenario || scenario.personaId !== persona.id) {
-    return Response.json({ error: "Unknown archetype or scenario." }, { status: 404 });
+  if (!persona) return Response.json({ error: "Unknown archetype." }, { status: 404 });
+
+  // Empty when reviewing a continued past conversation, whose original scenario isn't stored.
+  const scenario = input.scenarioId ? getScenario(input.scenarioId) : undefined;
+  if (input.scenarioId && (!scenario || scenario.personaId !== persona.id)) {
+    return Response.json({ error: "Unknown scenario." }, { status: 404 });
   }
 
   const scripted: ReviewResponse = { suggestions: fallbackSuggestions(input.moments.length), source: "scripted" };

@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { getArchetype } from "../personas/archetypes";
 import type { Scenario } from "../personas/types";
-import { supabase } from "../supabase";
+import { getSupabase } from "../supabase";
 import { buildConversationTitle, fromConversationRecord } from "./state";
 import type { ConversationRecord, ConversationState, ConversationSummary, MessageRole } from "./types";
 
@@ -23,7 +23,7 @@ export async function createConversation({
   const persona = getArchetype(personaId);
   if (!persona) throw new Error(`Unknown persona: ${personaId}`);
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from("conversations")
     .insert({
       id: randomUUID(),
@@ -45,7 +45,7 @@ export async function appendMessage(
   role: MessageRole,
   content: string,
 ): Promise<ConversationState> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .rpc("append_message", { p_conversation_id: conversationId, p_role: role, p_content: content })
     .single();
 
@@ -54,7 +54,7 @@ export async function appendMessage(
 }
 
 export async function getConversation(conversationId: string): Promise<ConversationState | null> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from("conversations")
     .select()
     .eq("id", conversationId)
@@ -66,7 +66,7 @@ export async function getConversation(conversationId: string): Promise<Conversat
 
 // A user's conversations, most recently active first, without message bodies (for a history sidebar).
 export async function listConversations(userId: string): Promise<ConversationSummary[]> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from("conversations")
     .select(SUMMARY_COLUMNS)
     .eq("user_id", userId)

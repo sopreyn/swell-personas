@@ -1,3 +1,13 @@
+# Swell Practice Room
+
+A chat-style proof of concept for practicing conflict resolution with an AI that plays one of three personality archetypes (`lib/personas/archetypes`).
+
+- **UI:** `components/practice/*`, styled by the tokens at the top of `app/globals.css`. The accent colour (`--persona`) changes with the archetype.
+- **Chat:** `POST /api/chat` builds the system prompt from `lib/personas`, calls the Anthropic SDK and returns the reply plus a 1 to 5 tension score. `POST /api/review` writes the coaching lines on the review screen.
+- **No API key?** Copy `.env.example` to `.env.local`. Without `ANTHROPIC_API_KEY` both routes fall back to scripted replies so the UI still runs.
+- **History:** sessions are saved in the browser (`lib/practice/history.ts`) in the same shape the database layer can store later.
+- **Placeholders:** the user name and personality type (`lib/practice/catalog.ts`) and the six scenarios (`lib/personas/scenarios.ts`).
+
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started

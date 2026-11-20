@@ -71,10 +71,19 @@ export async function POST(request: Request) {
     );
 
     const parsed = extractJson(text, "{") as { reply?: unknown; tension?: unknown; note?: unknown } | null;
-    // Never fall back to the raw completion here - it's the JSON wrapper itself, and
-    // showing or persisting it as the character's line corrupts every turn after it.
-    if (typeof parsed?.reply !== "string") throw new Error(`Model reply wasn't valid JSON: ${text}`);
-    const reply = parsed.reply
+    let replyText: string;
+    if (typeof parsed?.reply === "string") {
+      replyText = parsed.reply;
+    } else if (!text.trimStart().startsWith("{")) {
+      // The model skipped the JSON wrapper and just answered in character - a fine
+      // reply, just without a tension reading this turn (falls back to the prior one).
+      replyText = text;
+    } else {
+      // It attempted JSON but produced something broken that still looks like JSON -
+      // never show or persist that as the character's line.
+      throw new Error(`Model reply wasn't valid JSON: ${text}`);
+    }
+    const reply = replyText
       .split(/\n{2,}/)
       .map((p) => p.trim())
       .filter(Boolean)

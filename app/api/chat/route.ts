@@ -71,8 +71,10 @@ export async function POST(request: Request) {
     );
 
     const parsed = extractJson(text, "{") as { reply?: unknown; tension?: unknown; note?: unknown } | null;
-    const replyText = typeof parsed?.reply === "string" ? parsed.reply : text;
-    const reply = replyText
+    // Never fall back to the raw completion here - it's the JSON wrapper itself, and
+    // showing or persisting it as the character's line corrupts every turn after it.
+    if (typeof parsed?.reply !== "string") throw new Error(`Model reply wasn't valid JSON: ${text}`);
+    const reply = parsed.reply
       .split(/\n{2,}/)
       .map((p) => p.trim())
       .filter(Boolean)

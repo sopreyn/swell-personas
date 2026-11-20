@@ -33,13 +33,16 @@ export async function completeText(
 }
 
 // Models occasionally wrap JSON in prose or code fences, so cut out the outermost value.
+// They also tend to write real line breaks inside string values (e.g. a multi-paragraph
+// reply) instead of escaping them, which is invalid JSON - repair that before parsing.
 export function extractJson(text: string, open: "{" | "["): unknown {
   const close = open === "{" ? "}" : "]";
   const start = text.indexOf(open);
   const end = text.lastIndexOf(close);
   if (start === -1 || end <= start) return null;
+  const candidate = text.slice(start, end + 1).replace(/\r\n|\r|\n/g, "\\n");
   try {
-    return JSON.parse(text.slice(start, end + 1));
+    return JSON.parse(candidate);
   } catch {
     return null;
   }
